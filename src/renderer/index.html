@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Transparent Transcriber</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="controls" id="controls">
+        <div class="window-strip">
+          <div>
+            <p class="eyebrow">Transparent Transcriber</p>
+            <h1>Live captions for OBS</h1>
+          </div>
+          <button class="icon-button" id="toggleControls" title="Hide controls" aria-label="Hide controls">
+            -
+          </button>
+        </div>
+
+        <div class="control-grid">
+          <label>
+            <span>Mode</span>
+            <select id="mode">
+              <option value="local">Local audio</option>
+              <option value="twitch">Twitch URL</option>
+            </select>
+          </label>
+
+          <label class="local-only">
+            <span>Microphone</span>
+            <select id="micDevice"></select>
+          </label>
+
+          <label class="local-only">
+            <span>Desktop source</span>
+            <select id="desktopSource"></select>
+          </label>
+
+          <label class="twitch-only hidden">
+            <span>Twitch URL</span>
+            <input id="twitchUrl" placeholder="https://www.twitch.tv/channel" />
+          </label>
+
+          <label>
+            <span>Model</span>
+            <select id="model">
+              <option value="tiny">tiny</option>
+              <option value="base">base</option>
+              <option value="small" selected>small</option>
+              <option value="medium">medium</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Chunk</span>
+            <select id="chunkSeconds">
+              <option value="5">5s</option>
+              <option value="8" selected>8s</option>
+              <option value="12">12s</option>
+              <option value="20">20s</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="startButton" class="primary">Start</button>
+          <button id="stopButton" disabled>Stop</button>
+          <button id="clearButton">Clear</button>
+          <button id="logsButton">Logs</button>
+          <div class="status-dot" id="statusDot"></div>
+          <p id="statusText">Idle</p>
+        </div>
+
+        <section class="log-panel hidden" id="logPanel" aria-label="App logs">
+          <div class="log-header">
+            <span>Terminal</span>
+            <div class="log-actions">
+              <button id="copyLogsButton">Copy</button>
+              <button id="clearLogsButton">Clear logs</button>
+            </div>
+          </div>
+          <pre id="logOutput"></pre>
+        </section>
+      </section>
+
+      <button class="restore hidden" id="restoreControls" title="Show controls" aria-label="Show controls">
+        +
+      </button>
+
+      <section class="caption-stage" aria-live="polite">
+        <div id="emptyState" class="empty-state">Waiting for speech...</div>
+        <div id="captionList" class="caption-list"></div>
+      </section>
+    </main>
+
+    <script src="./renderer.js" type="module"></script>
+  </body>
+</html>

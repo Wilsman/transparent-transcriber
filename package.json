@@ -1,0 +1,57 @@
+{
+  "name": "transparent-transcriber",
+  "version": "0.1.0",
+  "description": "Transparent OBS-friendly local and Twitch voice transcriber.",
+  "main": "src/main/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron .",
+    "worker:check": "python worker/transcriber_worker.py --self-test",
+    "worker:build": "python -m PyInstaller --clean --onefile --name transcriber-worker --collect-all streamlink --collect-all faster_whisper worker/transcriber_worker.py",
+    "dist": "bun run worker:build && electron-builder --win portable",
+    "check": "bun run worker:check"
+  },
+  "keywords": [
+    "electron",
+    "transcription",
+    "obs",
+    "whisper"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3",
+    "ffmpeg-static": "^5.2.0"
+  },
+  "build": {
+    "appId": "local.transparent-transcriber",
+    "productName": "Transparent Transcriber",
+    "files": [
+      "src/**/*",
+      "worker/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/transcriber-worker.exe",
+        "to": "worker/transcriber-worker.exe",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg.exe",
+        "to": "bin/ffmpeg.exe"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "portable"
+      ],
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
+  }
+}

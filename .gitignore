@@ -1,0 +1,10 @@
+node_modules/
+build/
+dist/
+release/
+*.spec
+__pycache__/
+.venv/
+worker/__pycache__/
+transcripts/
+*.log
