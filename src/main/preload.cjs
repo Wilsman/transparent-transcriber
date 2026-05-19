@@ -6,6 +6,15 @@ contextBridge.exposeInMainWorld("transcriber", {
   sendAudioChunk: (payload) => ipcRenderer.invoke("transcriber:audio-chunk", payload),
   listDesktopSources: () => ipcRenderer.invoke("desktop-sources:list"),
   selectDesktopSource: (sourceId) => ipcRenderer.invoke("desktop-sources:select", sourceId),
+  checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+  downloadUpdate: () => ipcRenderer.invoke("updates:download"),
+  installUpdateAndRelaunch: () => ipcRenderer.invoke("updates:install-and-relaunch"),
+  openUpdateRelease: () => ipcRenderer.invoke("updates:open-release"),
+  onUpdateEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("updates:event", listener);
+    return () => ipcRenderer.removeListener("updates:event", listener);
+  },
   onEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("transcriber:event", listener);

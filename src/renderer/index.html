@@ -62,6 +62,14 @@
               <option value="20">20s</option>
             </select>
           </label>
+
+          <label>
+            <span>Display</span>
+            <select id="captionDisplayMode">
+              <option value="translations-only" selected>Translations only</option>
+              <option value="all">Transcribe all</option>
+            </select>
+          </label>
         </div>
 
         <div class="actions">
@@ -69,9 +77,24 @@
           <button id="stopButton" disabled>Stop</button>
           <button id="clearButton">Clear</button>
           <button id="logsButton">Logs</button>
+          <button id="checkUpdateButton">Updates</button>
           <div class="status-dot" id="statusDot"></div>
           <p id="statusText">Idle</p>
         </div>
+
+        <section class="update-panel hidden" id="updatePanel" aria-label="App update">
+          <div>
+            <p class="update-title" id="updateTitle">Update available</p>
+            <p class="update-message" id="updateMessage"></p>
+            <div class="update-progress hidden" id="updateProgress">
+              <div id="updateProgressBar"></div>
+            </div>
+          </div>
+          <div class="update-actions">
+            <button class="primary" id="updatePrimaryButton">Download</button>
+            <button id="updateLaterButton">Later</button>
+          </div>
+        </section>
 
         <section class="log-panel hidden" id="logPanel" aria-label="App logs">
           <div class="log-header">

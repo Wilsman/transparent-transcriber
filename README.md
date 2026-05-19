@@ -36,11 +36,10 @@ bun run check
 Run the app:
 
 ```powershell
-$env:PYTHON = ".\.venv\Scripts\python.exe"
 bun run dev
 ```
 
-The first transcription run downloads the selected Whisper model.
+`bun run dev` automatically uses `.\.venv\Scripts\python.exe` when it exists. The Electron app starts the Python worker when you press Start. The first transcription run downloads the selected Whisper model.
 
 ## Audio Capture Notes
 
@@ -63,35 +62,36 @@ Twitch mode requires `streamlink` in the Python environment:
 
 Enter a full Twitch URL, then start. The worker checks whether the stream is playable before launching the full audio pipeline.
 
-## Portable Windows Build
+## Windows Desktop Build
 
-Build the Python sidecar and Electron portable app:
+Build the Python sidecar, installer, and portable app:
 
 ```powershell
-$env:PYTHON = ".\.venv\Scripts\python.exe"
-bun run dist
+bun run dist:desktop:win
 ```
 
 The build script:
 
 1. Packages `worker/transcriber_worker.py` into `dist/transcriber-worker.exe`.
-2. Packages Electron as a Windows portable app.
+2. Packages Electron as a Windows NSIS installer and portable app.
 3. Includes `ffmpeg-static` as `resources/bin/ffmpeg.exe`.
 
 Whisper models are not bundled. They are downloaded on first use.
+
+Installed builds check GitHub Releases for updates on startup and through the Updates button. Installer builds can download, install, and relaunch from inside the app. Portable builds open the latest GitHub release so the user can download the new portable exe.
 
 ## GitHub Releases
 
 The repo includes a Windows release workflow in `.github/workflows/release.yml`.
 
-To publish a shareable portable exe:
+To publish a shareable desktop release:
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow builds `Transparent Transcriber-<version>-portable.exe` on `windows-latest` and attaches it to the GitHub release.
+The workflow builds `Transparent Transcriber-<version>-setup.exe`, `Transparent Transcriber-<version>-portable.exe`, and updater metadata on `windows-latest`, then attaches them to the GitHub release.
 
 You can also run the workflow manually from the GitHub Actions tab to create a downloadable build artifact without publishing a release.
 

@@ -5,11 +5,13 @@
   "main": "src/main/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "electron .",
-    "start": "electron .",
-    "worker:check": "python worker/transcriber_worker.py --self-test",
-    "worker:build": "python -m PyInstaller --clean --onefile --name transcriber-worker --collect-all streamlink --collect-all faster_whisper worker/transcriber_worker.py",
-    "dist": "bun run worker:build && electron-builder --win portable",
+    "dev": "node scripts/run-electron.cjs",
+    "start": "node scripts/run-electron.cjs",
+    "worker:check": "node scripts/run-worker-check.cjs",
+    "worker:build:win": "node scripts/build-worker-win.cjs",
+    "worker:build": "bun run worker:build:win",
+    "dist:desktop:win": "node scripts/dist-desktop-win.cjs",
+    "dist": "bun run dist:desktop:win",
     "check": "bun run worker:check"
   },
   "keywords": [
@@ -25,9 +27,19 @@
     "electron-builder": "^24.13.3",
     "ffmpeg-static": "^5.2.0"
   },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
+  },
   "build": {
     "appId": "local.transparent-transcriber",
     "productName": "Transparent Transcriber",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Wilsman",
+        "repo": "transparent-transcriber"
+      }
+    ],
     "files": [
       "src/**/*",
       "worker/**/*",
@@ -49,8 +61,17 @@
     "win": {
       "signAndEditExecutable": false,
       "target": [
+        "nsis",
         "portable"
-      ],
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
     }
   }

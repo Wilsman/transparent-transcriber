@@ -4,10 +4,12 @@ const desktopSource = document.querySelector("#desktopSource");
 const twitchUrl = document.querySelector("#twitchUrl");
 const model = document.querySelector("#model");
 const chunkSeconds = document.querySelector("#chunkSeconds");
+const captionDisplayMode = document.querySelector("#captionDisplayMode");
 const startButton = document.querySelector("#startButton");
 const stopButton = document.querySelector("#stopButton");
 const clearButton = document.querySelector("#clearButton");
 const logsButton = document.querySelector("#logsButton");
+const checkUpdateButton = document.querySelector("#checkUpdateButton");
 const copyLogsButton = document.querySelector("#copyLogsButton");
 const clearLogsButton = document.querySelector("#clearLogsButton");
 const statusText = document.querySelector("#statusText");
@@ -19,6 +21,13 @@ const logOutput = document.querySelector("#logOutput");
 const controls = document.querySelector("#controls");
 const toggleControls = document.querySelector("#toggleControls");
 const restoreControls = document.querySelector("#restoreControls");
+const updatePanel = document.querySelector("#updatePanel");
+const updateTitle = document.querySelector("#updateTitle");
+const updateMessage = document.querySelector("#updateMessage");
+const updateProgress = document.querySelector("#updateProgress");
+const updateProgressBar = document.querySelector("#updateProgressBar");
+const updatePrimaryButton = document.querySelector("#updatePrimaryButton");
+const updateLaterButton = document.querySelector("#updateLaterButton");
 
 let micStream;
 let desktopStream;
@@ -29,8 +38,14 @@ let processorNode;
 let silentOutputNode;
 let pcmFlushTimer;
 let running = false;
+let nextCaptionId = 1;
 const captions = [];
+const captionExpiryTimers = new Map();
 const logs = [];
+const CAPTION_LIFETIME_MS = 10000;
+let updateState = { status: "idle" };
+let updatePanelDismissed = false;
+let manualUpdateCheckPending = false;
 
 function timestampForLog() {
   return new Date().toLocaleTimeString([], {
@@ -54,6 +69,78 @@ function setStatus(message, state = "idle") {
   statusText.title = message;
   statusDot.classList.toggle("running", state === "running");
   statusDot.classList.toggle("error", state === "error");
+}
+
+function updateNoticeShouldShow(state, forceShow = false) {
+  if (updatePanelDismissed && !["downloading", "downloaded", "installing"].includes(state.status)) {
+    return false;
+  }
+
+  if (["available", "downloading", "downloaded", "installing", "opened-release"].includes(state.status)) {
+    return true;
+  }
+
+  return forceShow && ["checking", "no-update", "error", "dev"].includes(state.status);
+}
+
+function handleUpdateState(nextState, forceShow = false) {
+  updateState = { ...updateState, ...nextState };
+  const showPanel = updateNoticeShouldShow(updateState, forceShow);
+  updatePanel.classList.toggle("hidden", !showPanel);
+
+  const progress = Number.isFinite(updateState.progress) ? Math.max(0, Math.min(100, updateState.progress)) : 0;
+  updateProgress.classList.toggle("hidden", updateState.status !== "downloading");
+  updateProgressBar.style.width = `${progress}%`;
+
+  updatePrimaryButton.disabled = false;
+  updatePrimaryButton.classList.toggle("hidden", false);
+  updateLaterButton.textContent = "Later";
+
+  if (updateState.status === "checking") {
+    updateTitle.textContent = "Checking for updates";
+    updateMessage.textContent = updateState.message || "Checking GitHub releases...";
+    updatePrimaryButton.classList.add("hidden");
+  } else if (updateState.status === "available") {
+    const version = updateState.version ? ` v${updateState.version}` : "";
+    updateTitle.textContent = `Update available${version}`;
+    updateMessage.textContent = updateState.isPortable
+      ? "Portable builds open the latest GitHub release so you can download the new exe."
+      : "Download the update, then relaunch when it is ready.";
+    updatePrimaryButton.textContent = updateState.isPortable ? "Download latest" : "Download";
+  } else if (updateState.status === "downloading") {
+    updateTitle.textContent = "Downloading update";
+    updateMessage.textContent = updateState.message || "Downloading update...";
+    updatePrimaryButton.textContent = "Downloading";
+    updatePrimaryButton.disabled = true;
+  } else if (updateState.status === "downloaded") {
+    updateTitle.textContent = "Update ready";
+    updateMessage.textContent = "Install the update and relaunch Transparent Transcriber.";
+    updatePrimaryButton.textContent = "Install & relaunch";
+  } else if (updateState.status === "installing") {
+    updateTitle.textContent = "Installing update";
+    updateMessage.textContent = updateState.message || "Installing update and relaunching...";
+    updatePrimaryButton.textContent = "Installing";
+    updatePrimaryButton.disabled = true;
+    updateLaterButton.textContent = "Close";
+  } else if (updateState.status === "no-update") {
+    updateTitle.textContent = "Up to date";
+    updateMessage.textContent = updateState.message || "You're running the latest version.";
+    updatePrimaryButton.classList.add("hidden");
+  } else if (updateState.status === "opened-release") {
+    updateTitle.textContent = "Release opened";
+    updateMessage.textContent = updateState.message || "Opened the latest GitHub release.";
+    updatePrimaryButton.classList.add("hidden");
+  } else if (updateState.status === "dev") {
+    updateTitle.textContent = "Dev build";
+    updateMessage.textContent = updateState.message || "Updates are only available in packaged builds.";
+    updatePrimaryButton.classList.add("hidden");
+  } else if (updateState.status === "error") {
+    updateTitle.textContent = "Update check failed";
+    updateMessage.textContent = updateState.message || "Could not check for updates.";
+    updatePrimaryButton.textContent = "Open releases";
+  } else {
+    updatePanel.classList.add("hidden");
+  }
 }
 
 function updateModeVisibility() {
@@ -280,24 +367,27 @@ function stopLocalCapture() {
 }
 
 function renderCaptions() {
-  captionList.innerHTML = "";
-  emptyState.classList.toggle("hidden", captions.length > 0);
+  const now = Date.now();
+  for (let index = captions.length - 1; index >= 0; index -= 1) {
+    if (captions[index].expiresAt <= now) {
+      captions.splice(index, 1);
+    }
+  }
 
-  for (const caption of captions.slice(-3)) {
+  captionList.innerHTML = "";
+  const visibleCaptions = captions.filter((caption) => getCaptionDisplayText(caption));
+  emptyState.classList.toggle("hidden", visibleCaptions.length > 0);
+
+  for (const caption of visibleCaptions.slice(-3)) {
+    const displayText = getCaptionDisplayText(caption);
+
     const item = document.createElement("article");
     item.className = "caption";
 
     const text = document.createElement("p");
     text.className = "text";
-    text.textContent = caption.text;
+    text.textContent = displayText;
     item.append(text);
-
-    if (caption.translation) {
-      const translation = document.createElement("p");
-      translation.className = "translation";
-      translation.textContent = caption.translation;
-      item.append(translation);
-    }
 
     const meta = document.createElement("p");
     meta.className = "meta";
@@ -309,9 +399,65 @@ function renderCaptions() {
   }
 }
 
+function getCaptionDisplayText(caption) {
+  const language = caption.language ? caption.language.toLowerCase() : "";
+  const isEnglish = !language || language === "en";
+  if (captionDisplayMode.value === "translations-only") {
+    if (isEnglish) return "";
+    return caption.translation || "";
+  }
+
+  if (language && language !== "en") {
+    return caption.translation || "";
+  }
+  return caption.text || "";
+}
+
+function clearCaptionExpiryTimers() {
+  for (const timer of captionExpiryTimers.values()) {
+    window.clearTimeout(timer);
+  }
+  captionExpiryTimers.clear();
+}
+
+function removeCaption(id) {
+  const index = captions.findIndex((caption) => caption.id === id);
+  if (index !== -1) {
+    captions.splice(index, 1);
+    renderCaptions();
+  }
+  captionExpiryTimers.delete(id);
+}
+
+function addCaption(event) {
+  const caption = {
+    ...event,
+    id: nextCaptionId,
+    expiresAt: Date.now() + CAPTION_LIFETIME_MS
+  };
+  nextCaptionId += 1;
+
+  if (!getCaptionDisplayText(caption)) return;
+
+  captions.push(caption);
+  while (captions.length > 30) {
+    const removed = captions.shift();
+    if (removed) {
+      const timer = captionExpiryTimers.get(removed.id);
+      if (timer) window.clearTimeout(timer);
+      captionExpiryTimers.delete(removed.id);
+    }
+  }
+
+  const timer = window.setTimeout(() => removeCaption(caption.id), CAPTION_LIFETIME_MS);
+  captionExpiryTimers.set(caption.id, timer);
+  renderCaptions();
+}
+
 async function start() {
   if (running) return;
 
+  clearCaptionExpiryTimers();
   captions.length = 0;
   renderCaptions();
   appendLog("info", `Starting ${mode.value} mode with ${model.value}, ${chunkSeconds.value}s chunks`);
@@ -367,9 +513,7 @@ window.transcriber.onEvent((event) => {
   }
 
   if (event.type === "transcript") {
-    captions.push(event);
-    while (captions.length > 30) captions.shift();
-    renderCaptions();
+    addCaption(event);
     setStatus("Caption received", "running");
     return;
   }
@@ -391,7 +535,12 @@ window.transcriber.onEvent((event) => {
   }
 });
 
+window.transcriber.onUpdateEvent((event) => {
+  handleUpdateState(event, manualUpdateCheckPending);
+});
+
 mode.addEventListener("change", updateModeVisibility);
+captionDisplayMode.addEventListener("change", renderCaptions);
 startButton.addEventListener("click", () => start().catch(async (error) => {
   running = false;
   stopLocalCapture();
@@ -402,6 +551,7 @@ startButton.addEventListener("click", () => start().catch(async (error) => {
 }));
 stopButton.addEventListener("click", () => stop().catch((error) => setStatus(error.message, "error")));
 clearButton.addEventListener("click", () => {
+  clearCaptionExpiryTimers();
   captions.length = 0;
   renderCaptions();
   appendLog("info", "Captions cleared");
@@ -409,6 +559,45 @@ clearButton.addEventListener("click", () => {
 logsButton.addEventListener("click", () => {
   const visible = logPanel.classList.toggle("hidden");
   logsButton.textContent = visible ? "Logs" : "Hide logs";
+});
+checkUpdateButton.addEventListener("click", async () => {
+  manualUpdateCheckPending = true;
+  updatePanelDismissed = false;
+  handleUpdateState({ status: "checking", message: "Checking GitHub releases..." }, true);
+
+  try {
+    const state = await window.transcriber.checkForUpdates();
+    handleUpdateState(state, true);
+  } catch (error) {
+    handleUpdateState({ status: "error", message: error.message || "Update check failed." }, true);
+  } finally {
+    manualUpdateCheckPending = false;
+  }
+});
+updatePrimaryButton.addEventListener("click", async () => {
+  updatePanelDismissed = false;
+
+  try {
+    if (updateState.status === "downloaded") {
+      const state = await window.transcriber.installUpdateAndRelaunch();
+      handleUpdateState(state, true);
+      return;
+    }
+
+    if (updateState.status === "error") {
+      await window.transcriber.openUpdateRelease();
+      return;
+    }
+
+    const state = await window.transcriber.downloadUpdate();
+    handleUpdateState(state, true);
+  } catch (error) {
+    handleUpdateState({ status: "error", message: error.message || "Update action failed." }, true);
+  }
+});
+updateLaterButton.addEventListener("click", () => {
+  updatePanelDismissed = true;
+  updatePanel.classList.add("hidden");
 });
 copyLogsButton.addEventListener("click", async () => {
   const text = logs.join("\n");

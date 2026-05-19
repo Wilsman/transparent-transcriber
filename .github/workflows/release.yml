@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  windows-portable:
-    name: Windows portable
+  windows-desktop:
+    name: Windows desktop
     runs-on: windows-latest
 
     steps:
@@ -34,18 +34,26 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Build portable app
-        run: bun run dist
+      - name: Build desktop app
+        run: bun run dist:desktop:win
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Transparent Transcriber portable
-          path: dist/Transparent Transcriber-*-portable.exe
+          name: Transparent Transcriber Windows
+          path: |
+            dist/Transparent Transcriber-*-setup.exe
+            dist/Transparent Transcriber-*-setup.exe.blockmap
+            dist/Transparent Transcriber-*-portable.exe
+            dist/latest.yml
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/Transparent Transcriber-*-portable.exe
+          files: |
+            dist/Transparent Transcriber-*-setup.exe
+            dist/Transparent Transcriber-*-setup.exe.blockmap
+            dist/Transparent Transcriber-*-portable.exe
+            dist/latest.yml
           generate_release_notes: true
