@@ -36,7 +36,7 @@ function run(command, args) {
 
 async function main() {
   await run(process.execPath, ["scripts/build-worker-win.cjs"]);
-  await run(process.execPath, [require.resolve("electron-builder/cli.js"), "--win"]);
+  await run(process.execPath, [require.resolve("electron-builder/cli.js"), "--win", "--publish", "never"]);
 }
 
 main().catch((error) => {

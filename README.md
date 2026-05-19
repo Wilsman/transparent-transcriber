@@ -80,20 +80,61 @@ Whisper models are not bundled. They are downloaded on first use.
 
 Installed builds check GitHub Releases for updates on startup and through the Updates button. Installer builds can download, install, and relaunch from inside the app. Portable builds open the latest GitHub release so the user can download the new portable exe.
 
+The local build command only creates files in `dist`; it does not publish anything to GitHub.
+
+Expected local output:
+
+- `dist/Transparent Transcriber-<version>-setup.exe`
+- `dist/Transparent Transcriber-<version>-setup.exe.blockmap`
+- `dist/Transparent Transcriber-<version>-portable.exe`
+- `dist/latest.yml`
+
 ## GitHub Releases
 
 The repo includes a Windows release workflow in `.github/workflows/release.yml`.
 
-To publish a shareable desktop release:
+### Push normal code changes
+
+Commit and push the app source without publishing a release:
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git status
+git add .
+git commit -m "feat: describe the change"
+git push origin master
+```
+
+### Run the GitHub Action manually
+
+Run this when you want GitHub to build downloadable artifacts without creating a GitHub Release:
+
+```powershell
+gh workflow run Release --ref master
+gh run list --workflow Release --limit 3
+gh run watch <run-id> --exit-status
+```
+
+The manual run uploads a workflow artifact named `Transparent Transcriber Windows`.
+
+### Publish a real updater release
+
+The in-app updater checks GitHub Releases, so a new update needs a new version in `package.json` and a matching tag.
+
+Example:
+
+```powershell
+bun run check
+bun run dist:desktop:win
+git add package.json bun.lock
+git commit -m "chore: release v0.1.1"
+git tag v0.1.1
+git push origin master
+git push origin v0.1.1
 ```
 
 The workflow builds `Transparent Transcriber-<version>-setup.exe`, `Transparent Transcriber-<version>-portable.exe`, and updater metadata on `windows-latest`, then attaches them to the GitHub release.
 
-You can also run the workflow manually from the GitHub Actions tab to create a downloadable build artifact without publishing a release.
+After the tagged release finishes, installed copies of the app can find it through the startup update check or the Updates button.
 
 ## Current Defaults
 
