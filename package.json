@@ -1,6 +1,6 @@
 {
   "name": "transparent-transcriber",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Transparent OBS-friendly local and Twitch voice transcriber.",
   "main": "src/main/main.cjs",
   "type": "module",
