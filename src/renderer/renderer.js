@@ -28,6 +28,7 @@ const updateProgress = document.querySelector("#updateProgress");
 const updateProgressBar = document.querySelector("#updateProgressBar");
 const updatePrimaryButton = document.querySelector("#updatePrimaryButton");
 const updateLaterButton = document.querySelector("#updateLaterButton");
+const updateChipText = document.querySelector("#updateChipText");
 
 let micStream;
 let desktopStream;
@@ -46,6 +47,7 @@ const CAPTION_LIFETIME_MS = 10000;
 let updateState = { status: "idle" };
 let updatePanelDismissed = false;
 let manualUpdateCheckPending = false;
+let updateNoticeTimer;
 
 function timestampForLog() {
   return new Date().toLocaleTimeString([], {
@@ -83,10 +85,53 @@ function updateNoticeShouldShow(state, forceShow = false) {
   return forceShow && ["checking", "no-update", "error", "dev"].includes(state.status);
 }
 
+function updateChipForState(state) {
+  const status = state.status || "idle";
+  checkUpdateButton.dataset.status = status;
+  checkUpdateButton.classList.toggle("attention", ["available", "downloaded", "error"].includes(status));
+
+  if (status === "checking") {
+    updateChipText.textContent = "Checking";
+  } else if (status === "available") {
+    updateChipText.textContent = state.version ? `v${state.version}` : "Update";
+  } else if (status === "downloading") {
+    updateChipText.textContent = `${Number.isFinite(state.progress) ? Math.round(state.progress) : 0}%`;
+  } else if (status === "downloaded") {
+    updateChipText.textContent = "Restart";
+  } else if (status === "installing") {
+    updateChipText.textContent = "Restarting";
+  } else if (status === "no-update") {
+    updateChipText.textContent = "Current";
+  } else if (status === "error") {
+    updateChipText.textContent = "Update error";
+  } else {
+    updateChipText.textContent = "Updates";
+  }
+}
+
+function scheduleUpdatePanelHide(status, forceShow) {
+  if (updateNoticeTimer) {
+    window.clearTimeout(updateNoticeTimer);
+    updateNoticeTimer = null;
+  }
+
+  if (!forceShow || ["available", "downloading", "downloaded", "installing", "error"].includes(status)) {
+    return;
+  }
+
+  updateNoticeTimer = window.setTimeout(() => {
+    if (!["available", "downloading", "downloaded", "installing", "error"].includes(updateState.status)) {
+      updatePanel.classList.add("hidden");
+    }
+  }, 3200);
+}
+
 function handleUpdateState(nextState, forceShow = false) {
   updateState = { ...updateState, ...nextState };
   const showPanel = updateNoticeShouldShow(updateState, forceShow);
   updatePanel.classList.toggle("hidden", !showPanel);
+  updatePanel.dataset.status = updateState.status || "idle";
+  updateChipForState(updateState);
 
   const progress = Number.isFinite(updateState.progress) ? Math.max(0, Math.min(100, updateState.progress)) : 0;
   updateProgress.classList.toggle("hidden", updateState.status !== "downloading");
@@ -102,7 +147,7 @@ function handleUpdateState(nextState, forceShow = false) {
     updatePrimaryButton.classList.add("hidden");
   } else if (updateState.status === "available") {
     const version = updateState.version ? ` v${updateState.version}` : "";
-    updateTitle.textContent = `Update available${version}`;
+    updateTitle.textContent = `Update ready to download${version}`;
     updateMessage.textContent = updateState.isPortable
       ? "Portable builds open the latest GitHub release so you can download the new exe."
       : "Download the update, then relaunch when it is ready.";
@@ -113,9 +158,9 @@ function handleUpdateState(nextState, forceShow = false) {
     updatePrimaryButton.textContent = "Downloading";
     updatePrimaryButton.disabled = true;
   } else if (updateState.status === "downloaded") {
-    updateTitle.textContent = "Update ready";
-    updateMessage.textContent = "Install the update and relaunch Transparent Transcriber.";
-    updatePrimaryButton.textContent = "Install & relaunch";
+    updateTitle.textContent = "Restart to finish updating";
+    updateMessage.textContent = "The update is downloaded. Relaunch now to switch to the new version.";
+    updatePrimaryButton.textContent = "Restart now";
   } else if (updateState.status === "installing") {
     updateTitle.textContent = "Installing update";
     updateMessage.textContent = updateState.message || "Installing update and relaunching...";
@@ -141,6 +186,8 @@ function handleUpdateState(nextState, forceShow = false) {
   } else {
     updatePanel.classList.add("hidden");
   }
+
+  scheduleUpdatePanelHide(updateState.status, forceShow);
 }
 
 function updateModeVisibility() {
@@ -561,6 +608,12 @@ logsButton.addEventListener("click", () => {
   logsButton.textContent = visible ? "Logs" : "Hide logs";
 });
 checkUpdateButton.addEventListener("click", async () => {
+  if (["available", "downloading", "downloaded", "installing", "error"].includes(updateState.status)) {
+    updatePanelDismissed = false;
+    handleUpdateState(updateState, true);
+    return;
+  }
+
   manualUpdateCheckPending = true;
   updatePanelDismissed = false;
   handleUpdateState({ status: "checking", message: "Checking GitHub releases..." }, true);

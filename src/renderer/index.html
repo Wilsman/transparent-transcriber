@@ -14,9 +14,15 @@
             <p class="eyebrow">Transparent Transcriber</p>
             <h1>Live captions for OBS</h1>
           </div>
-          <button class="icon-button" id="toggleControls" title="Hide controls" aria-label="Hide controls">
-            -
-          </button>
+          <div class="window-actions">
+            <button class="update-chip" id="checkUpdateButton" title="Check for updates" aria-label="Check for updates">
+              <span class="update-chip-dot"></span>
+              <span id="updateChipText">Updates</span>
+            </button>
+            <button class="icon-button" id="toggleControls" title="Hide controls" aria-label="Hide controls">
+              -
+            </button>
+          </div>
         </div>
 
         <div class="control-grid">
@@ -77,12 +83,11 @@
           <button id="stopButton" disabled>Stop</button>
           <button id="clearButton">Clear</button>
           <button id="logsButton">Logs</button>
-          <button id="checkUpdateButton">Updates</button>
           <div class="status-dot" id="statusDot"></div>
           <p id="statusText">Idle</p>
         </div>
 
-        <section class="update-panel hidden" id="updatePanel" aria-label="App update">
+        <section class="update-panel hidden" id="updatePanel" aria-label="App update" aria-live="polite">
           <div>
             <p class="update-title" id="updateTitle">Update available</p>
             <p class="update-message" id="updateMessage"></p>
