@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("transcriber", {
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),
   installUpdateAndRelaunch: () => ipcRenderer.invoke("updates:install-and-relaunch"),
   openUpdateRelease: () => ipcRenderer.invoke("updates:open-release"),
+  closeWindow: () => ipcRenderer.invoke("app:close"),
+  resizeToContent: (payload) => ipcRenderer.invoke("window:resize-to-content", payload),
   onUpdateEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("updates:event", listener);

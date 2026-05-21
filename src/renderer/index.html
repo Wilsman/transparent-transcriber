@@ -7,84 +7,117 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="shell">
+    <main class="shell" id="shell">
       <section class="controls" id="controls">
         <div class="window-strip">
-          <div>
+          <div class="window-brand">
             <p class="eyebrow">Transparent Transcriber</p>
             <h1>Live captions for OBS</h1>
+            <details class="obs-tip" id="obsTip">
+              <summary>How to use in OBS</summary>
+              <p>
+                Add a <strong>Window Capture</strong> source, pick this app window, and crop to the caption area.
+                Hide controls with <strong>−</strong> for a clean overlay. Use a chroma key only if you need a solid backdrop.
+              </p>
+            </details>
           </div>
           <div class="window-actions">
             <button class="update-chip" id="checkUpdateButton" title="Check for updates" aria-label="Check for updates">
               <span class="update-chip-dot"></span>
               <span id="updateChipText">Updates</span>
             </button>
-            <button class="icon-button" id="toggleControls" title="Hide controls" aria-label="Hide controls">
-              -
+            <button class="icon-button" id="toggleControls" title="Hide controls (caption-only overlay)" aria-label="Hide controls">
+              −
+            </button>
+            <button class="icon-button icon-button-close" id="closeButton" title="Close application" aria-label="Close application">
+              ×
             </button>
           </div>
         </div>
 
-        <div class="control-grid">
-          <label>
-            <span>Mode</span>
-            <select id="mode">
-              <option value="local">Local audio</option>
-              <option value="twitch">Twitch URL</option>
-            </select>
-          </label>
+        <p class="collapse-hint hidden" id="collapseHint" role="note">
+          Controls hidden — captions stay visible. Click <strong>+</strong> top-right to restore settings.
+        </p>
 
-          <label class="local-only">
-            <span>Microphone</span>
-            <select id="micDevice"></select>
-          </label>
+        <div class="control-grid mode-local" id="controlGrid">
+          <fieldset class="control-section source-section">
+            <legend>Source</legend>
+            <div class="section-grid source-grid">
+              <label class="field-mode">
+                <span>Mode</span>
+                <select id="mode">
+                  <option value="local">Local audio</option>
+                  <option value="twitch">Twitch URL</option>
+                </select>
+              </label>
 
-          <label class="local-only">
-            <span>Desktop source</span>
-            <select id="desktopSource"></select>
-          </label>
+              <label class="local-only field-mic">
+                <span>Microphone</span>
+                <select id="micDevice"></select>
+              </label>
 
-          <label class="twitch-only hidden">
-            <span>Twitch URL</span>
-            <input id="twitchUrl" placeholder="https://www.twitch.tv/channel" />
-          </label>
+              <label class="local-only field-desktop">
+                <span>Desktop source</span>
+                <select id="desktopSource"></select>
+              </label>
 
-          <label>
-            <span>Model</span>
-            <select id="model">
-              <option value="tiny">tiny</option>
-              <option value="base">base</option>
-              <option value="small" selected>small</option>
-              <option value="medium">medium</option>
-            </select>
-          </label>
+              <label class="twitch-only hidden field-twitch">
+                <span>Twitch URL</span>
+                <input id="twitchUrl" type="url" placeholder="https://www.twitch.tv/channel" autocomplete="url" />
+                <span class="field-error hidden" id="twitchUrlError" role="alert"></span>
+              </label>
+            </div>
+          </fieldset>
 
-          <label>
-            <span>Chunk</span>
-            <select id="chunkSeconds">
-              <option value="5">5s</option>
-              <option value="8" selected>8s</option>
-              <option value="12">12s</option>
-              <option value="20">20s</option>
-            </select>
-          </label>
+          <fieldset class="control-section transcription-section">
+            <legend>Transcription</legend>
+            <div class="section-grid transcription-grid">
+              <label class="field-model">
+                <span>Model</span>
+                <select id="model" title="Larger models are more accurate but use more GPU and add latency">
+                  <option value="tiny">Tiny — fastest, lowest quality</option>
+                  <option value="base">Base — fast, basic quality</option>
+                  <option value="small" selected>Small — balanced (recommended)</option>
+                  <option value="medium">Medium — slower, higher quality</option>
+                </select>
+              </label>
 
-          <label>
-            <span>Display</span>
-            <select id="captionDisplayMode">
-              <option value="translations-only" selected>Translations only</option>
-              <option value="all">Transcribe all</option>
-            </select>
-          </label>
+              <label class="field-latency" title="How often audio is sent for transcription — lower is more responsive, higher is more stable">
+                <span>Latency</span>
+                <span class="field-helper">Audio interval between transcriptions</span>
+                <select id="chunkSeconds">
+                  <option value="5">5s — lowest delay</option>
+                  <option value="8" selected>8s — balanced</option>
+                  <option value="12">12s — stable</option>
+                  <option value="20">20s — smoothest</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="control-section captions-section">
+            <legend>Captions</legend>
+            <div class="section-grid captions-grid">
+              <label class="field-display">
+                <span>Display</span>
+                <select id="captionDisplayMode" title="Choose which caption lines appear on screen">
+                  <option value="translations-only" selected>Translations only</option>
+                  <option value="all">English + translations</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
         </div>
 
         <div class="actions">
           <button id="startButton" class="primary">Start</button>
           <button id="stopButton" disabled>Stop</button>
           <button id="clearButton">Clear</button>
-          <button id="logsButton">Logs</button>
-          <div class="status-dot" id="statusDot"></div>
-          <p id="statusText">Idle</p>
+          <button id="logsButton" aria-pressed="false" aria-controls="logPanel" aria-expanded="false">Logs</button>
+          <div class="status-group" id="statusGroup" role="status" aria-live="polite">
+            <div class="status-dot" id="statusDot" aria-hidden="true"></div>
+            <p id="statusText">Idle</p>
+          </div>
         </div>
 
         <section class="update-panel hidden" id="updatePanel" aria-label="App update" aria-live="polite">
@@ -118,7 +151,7 @@
       </button>
 
       <section class="caption-stage" aria-live="polite">
-        <div id="emptyState" class="empty-state">Waiting for speech...</div>
+        <div id="emptyState" class="empty-state">Press Start to transcribe</div>
         <div id="captionList" class="caption-list"></div>
       </section>
     </main>

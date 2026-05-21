@@ -212,14 +212,53 @@ function installUpdateAndRelaunch() {
   return updateState;
 }
 
+const WINDOW_BOUNDS = {
+  defaultWidth: 920,
+  defaultHeight: 500,
+  minWidth: 520,
+  minHeightExpanded: 380,
+  minHeightCaptionOnly: 160,
+  maxWidth: 920
+};
+
+function clampWindowDimension(value, min, max) {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function resizeMainWindowToContent(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false };
+  }
+
+  const { width: workWidth, height: workHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const captionOnly = Boolean(payload.captionOnly);
+  const minHeight = captionOnly ? WINDOW_BOUNDS.minHeightCaptionOnly : WINDOW_BOUNDS.minHeightExpanded;
+  const maxHeight = Math.max(minHeight, workHeight - 24);
+  const maxWidth = Math.min(WINDOW_BOUNDS.maxWidth, workWidth - 24);
+  const [currentWidth] = mainWindow.getContentSize();
+  const width = clampWindowDimension(
+    payload.width || currentWidth || WINDOW_BOUNDS.defaultWidth,
+    WINDOW_BOUNDS.minWidth,
+    maxWidth
+  );
+  const height = clampWindowDimension(
+    payload.height || WINDOW_BOUNDS.defaultHeight,
+    minHeight,
+    maxHeight
+  );
+
+  mainWindow.setContentSize(width, height);
+  return { ok: true, width, height };
+}
+
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   mainWindow = new BrowserWindow({
-    width: Math.min(920, width),
-    height: Math.min(360, height),
-    minWidth: 520,
-    minHeight: 220,
+    width: Math.min(WINDOW_BOUNDS.defaultWidth, width),
+    height: Math.min(WINDOW_BOUNDS.defaultHeight, height),
+    minWidth: WINDOW_BOUNDS.minWidth,
+    minHeight: WINDOW_BOUNDS.minHeightExpanded,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -450,6 +489,15 @@ ipcMain.handle("updates:open-release", async () => {
   await shell.openExternal(updateState.releaseUrl || latestReleaseUrl);
   return updateState;
 });
+
+ipcMain.handle("app:close", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
+  }
+  return { ok: true };
+});
+
+ipcMain.handle("window:resize-to-content", (_event, payload) => resizeMainWindowToContent(payload || {}));
 
 autoUpdater.on("checking-for-update", () => {
   publishUpdateState({

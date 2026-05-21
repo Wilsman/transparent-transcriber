@@ -1,7 +1,17 @@
+const SETTINGS_KEY = "transparent-transcriber-settings";
+const COLLAPSE_HINT_KEY = "transparent-transcriber-collapse-hint-seen";
+const CAPTION_LIFETIME_MS = 10000;
+const CAPTION_EXIT_MS = 280;
+const CONFIDENCE_SHOW_THRESHOLD = 0.55;
+const CAPTION_STAGE_MIN = 88;
+const SHELL_PADDING_Y = 28;
+const SHELL_GRID_GAP = 12;
+
 const mode = document.querySelector("#mode");
 const micDevice = document.querySelector("#micDevice");
 const desktopSource = document.querySelector("#desktopSource");
 const twitchUrl = document.querySelector("#twitchUrl");
+const twitchUrlError = document.querySelector("#twitchUrlError");
 const model = document.querySelector("#model");
 const chunkSeconds = document.querySelector("#chunkSeconds");
 const captionDisplayMode = document.querySelector("#captionDisplayMode");
@@ -12,6 +22,7 @@ const logsButton = document.querySelector("#logsButton");
 const checkUpdateButton = document.querySelector("#checkUpdateButton");
 const copyLogsButton = document.querySelector("#copyLogsButton");
 const clearLogsButton = document.querySelector("#clearLogsButton");
+const closeButton = document.querySelector("#closeButton");
 const statusText = document.querySelector("#statusText");
 const statusDot = document.querySelector("#statusDot");
 const captionList = document.querySelector("#captionList");
@@ -19,8 +30,12 @@ const emptyState = document.querySelector("#emptyState");
 const logPanel = document.querySelector("#logPanel");
 const logOutput = document.querySelector("#logOutput");
 const controls = document.querySelector("#controls");
+const controlGrid = document.querySelector("#controlGrid");
+const shell = document.querySelector("#shell");
 const toggleControls = document.querySelector("#toggleControls");
 const restoreControls = document.querySelector("#restoreControls");
+const collapseHint = document.querySelector("#collapseHint");
+const obsTip = document.querySelector("#obsTip");
 const updatePanel = document.querySelector("#updatePanel");
 const updateTitle = document.querySelector("#updateTitle");
 const updateMessage = document.querySelector("#updateMessage");
@@ -39,15 +54,67 @@ let processorNode;
 let silentOutputNode;
 let pcmFlushTimer;
 let running = false;
+let sessionState = "idle";
+let sessionDetail = "";
+let activityFlashTimer = null;
 let nextCaptionId = 1;
 const captions = [];
+const captionDom = new Map();
 const captionExpiryTimers = new Map();
+const captionExitTimers = new Map();
 const logs = [];
-const CAPTION_LIFETIME_MS = 10000;
 let updateState = { status: "idle" };
 let updatePanelDismissed = false;
 let manualUpdateCheckPending = false;
 let updateNoticeTimer;
+let settingsLoaded = false;
+let resizeFrame = null;
+
+const SESSION_LABELS = {
+  idle: "Idle",
+  running: "Running",
+  error: "Error"
+};
+
+function measureContentSize() {
+  const captionOnly = shell.classList.contains("caption-only");
+
+  if (captionOnly) {
+    const captionStage = document.querySelector(".caption-stage");
+    const stageHeight = Math.max(
+      CAPTION_STAGE_MIN,
+      captionStage.scrollHeight,
+      captionList.offsetHeight + (emptyState.classList.contains("hidden") ? 0 : emptyState.offsetHeight)
+    );
+
+    return {
+      captionOnly: true,
+      width: Math.ceil(shell.scrollWidth || controls.offsetWidth || 920),
+      height: Math.ceil(SHELL_PADDING_Y + stageHeight)
+    };
+  }
+
+  const controlsHeight = Math.ceil(controls.scrollHeight);
+  const height = Math.ceil(SHELL_PADDING_Y + SHELL_GRID_GAP + controlsHeight + CAPTION_STAGE_MIN);
+
+  return {
+    captionOnly: false,
+    width: Math.ceil(Math.max(shell.scrollWidth, controls.scrollWidth, 520)),
+    height
+  };
+}
+
+function scheduleResizeToContent() {
+  if (resizeFrame !== null) {
+    window.cancelAnimationFrame(resizeFrame);
+  }
+
+  resizeFrame = window.requestAnimationFrame(() => {
+    resizeFrame = null;
+    if (!window.transcriber?.resizeToContent) return;
+    window.transcriber.resizeToContent(measureContentSize()).catch(() => {});
+  });
+}
 
 function timestampForLog() {
   return new Date().toLocaleTimeString([], {
@@ -66,11 +133,185 @@ function appendLog(level, message, data) {
   logOutput.scrollTop = logOutput.scrollHeight;
 }
 
-function setStatus(message, state = "idle") {
-  statusText.textContent = message;
-  statusText.title = message;
+function updateEmptyState() {
+  const visibleCount = captions.filter((caption) => getCaptionDisplayText(caption)).length;
+  if (visibleCount > 0) {
+    emptyState.classList.add("hidden");
+    return;
+  }
+
+  emptyState.classList.remove("hidden");
+  emptyState.textContent = running ? "Waiting for speech..." : "Press Start to transcribe";
+}
+
+function setSessionState(state, detail = "") {
+  sessionState = state;
+  sessionDetail = detail;
   statusDot.classList.toggle("running", state === "running");
   statusDot.classList.toggle("error", state === "error");
+  controls.classList.toggle("is-running", running);
+  applyStatusLabel();
+  updateEmptyState();
+}
+
+function applyStatusLabel() {
+  if (activityFlashTimer) return;
+  const base = SESSION_LABELS[sessionState] || "Idle";
+  const label = sessionDetail && sessionState !== "idle" ? sessionDetail : base;
+  statusText.textContent = label;
+  statusText.title = label;
+}
+
+function flashActivity(message, durationMs = 1800) {
+  if (!running || sessionState === "error") return;
+
+  if (activityFlashTimer) {
+    window.clearTimeout(activityFlashTimer);
+    activityFlashTimer = null;
+  }
+
+  statusText.textContent = message;
+  statusText.title = message;
+  statusText.classList.add("activity-flash");
+
+  activityFlashTimer = window.setTimeout(() => {
+    activityFlashTimer = null;
+    statusText.classList.remove("activity-flash");
+    applyStatusLabel();
+  }, durationMs);
+}
+
+function setConfigDisabled(disabled) {
+  const fields = controlGrid.querySelectorAll("select, input");
+  for (const field of fields) {
+    field.disabled = disabled;
+  }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        mode: mode.value,
+        twitchUrl: twitchUrl.value,
+        model: model.value,
+        chunkSeconds: chunkSeconds.value,
+        captionDisplayMode: captionDisplayMode.value,
+        micDevice: micDevice.value,
+        desktopSource: desktopSource.value
+      })
+    );
+  } catch {
+    // Ignore quota or privacy errors.
+  }
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function applyStoredSettings(stored) {
+  if (!stored) return;
+
+  if (stored.mode === "local" || stored.mode === "twitch") {
+    mode.value = stored.mode;
+  }
+  if (stored.twitchUrl) twitchUrl.value = stored.twitchUrl;
+  if (stored.model && [...model.options].some((option) => option.value === stored.model)) {
+    model.value = stored.model;
+  }
+  if (stored.chunkSeconds && [...chunkSeconds.options].some((option) => option.value === stored.chunkSeconds)) {
+    chunkSeconds.value = stored.chunkSeconds;
+  }
+  if (
+    stored.captionDisplayMode &&
+    [...captionDisplayMode.options].some((option) => option.value === stored.captionDisplayMode)
+  ) {
+    captionDisplayMode.value = stored.captionDisplayMode;
+  }
+}
+
+function restoreDeviceSelections(stored) {
+  if (!stored) return;
+
+  if (stored.micDevice && [...micDevice.options].some((option) => option.value === stored.micDevice)) {
+    micDevice.value = stored.micDevice;
+  }
+  if (stored.desktopSource && [...desktopSource.options].some((option) => option.value === stored.desktopSource)) {
+    desktopSource.value = stored.desktopSource;
+  }
+}
+
+function bindSettingsPersistence() {
+  const persistTargets = [mode, twitchUrl, model, chunkSeconds, captionDisplayMode, micDevice, desktopSource];
+  for (const target of persistTargets) {
+    target.addEventListener("change", () => {
+      saveSettings();
+      if (target === mode) {
+        updateModeVisibility();
+        clearTwitchUrlError();
+        scheduleResizeToContent();
+      }
+    });
+    if (target === twitchUrl) {
+      target.addEventListener("input", clearTwitchUrlError);
+    }
+  }
+}
+
+function clearTwitchUrlError() {
+  twitchUrlError.textContent = "";
+  twitchUrlError.classList.add("hidden");
+  twitchUrl.removeAttribute("aria-invalid");
+}
+
+function validateTwitchUrl(showError = true) {
+  if (mode.value !== "twitch") {
+    clearTwitchUrlError();
+    return true;
+  }
+
+  const value = twitchUrl.value.trim();
+  const valid = /^https?:\/\/(www\.)?twitch\.tv\/[A-Za-z0-9_]{3,25}\/?$/i.test(value);
+
+  if (!showError) return valid;
+
+  if (!value) {
+    twitchUrlError.textContent = "Enter a Twitch channel URL.";
+    twitchUrlError.classList.remove("hidden");
+    twitchUrl.setAttribute("aria-invalid", "true");
+    return false;
+  }
+
+  if (!valid) {
+    twitchUrlError.textContent = "Use a full URL like https://www.twitch.tv/channel";
+    twitchUrlError.classList.remove("hidden");
+    twitchUrl.setAttribute("aria-invalid", "true");
+    return false;
+  }
+
+  clearTwitchUrlError();
+  return true;
+}
+
+function formatCaptionMeta(caption) {
+  const language = caption.language ? caption.language.toUpperCase() : "AUTO";
+  const probability = caption.probability;
+
+  if (!Number.isFinite(probability) || probability < CONFIDENCE_SHOW_THRESHOLD) {
+    return language;
+  }
+
+  const percent = Math.round(probability * 100);
+  const displayPercent = percent >= 100 && probability < 0.995 ? 99 : Math.min(99, percent);
+  return `${language} · ${displayPercent}% confidence`;
 }
 
 function updateNoticeShouldShow(state, forceShow = false) {
@@ -101,7 +342,7 @@ function updateChipForState(state) {
   } else if (status === "installing") {
     updateChipText.textContent = "Restarting";
   } else if (status === "no-update") {
-    updateChipText.textContent = "Current";
+    updateChipText.textContent = "Up to date";
   } else if (status === "error") {
     updateChipText.textContent = "Update error";
   } else {
@@ -188,12 +429,16 @@ function handleUpdateState(nextState, forceShow = false) {
   }
 
   scheduleUpdatePanelHide(updateState.status, forceShow);
+  scheduleResizeToContent();
 }
 
 function updateModeVisibility() {
   const localMode = mode.value === "local";
+  controlGrid.classList.toggle("mode-local", localMode);
+  controlGrid.classList.toggle("mode-twitch", !localMode);
   document.querySelectorAll(".local-only").forEach((item) => item.classList.toggle("hidden", !localMode));
   document.querySelectorAll(".twitch-only").forEach((item) => item.classList.toggle("hidden", localMode));
+  scheduleResizeToContent();
 }
 
 async function loadDevices() {
@@ -221,18 +466,24 @@ async function loadDevices() {
       desktopSource.append(new Option(source.name, source.id));
     }
 
-    const firstScreen = sortedSources.find((source) => source.id.startsWith("screen:"));
-    if (firstScreen) {
-      desktopSource.value = firstScreen.id;
-      setStatus(`Desktop audio default: ${firstScreen.name}`);
-      appendLog("info", `Desktop audio default: ${firstScreen.name}`);
-    } else if (sortedSources.length > 0) {
-      desktopSource.value = sortedSources[0].id;
-      setStatus(`Desktop source default: ${sortedSources[0].name}`);
-      appendLog("info", `Desktop source default: ${sortedSources[0].name}`);
+    const stored = settingsLoaded ? null : loadSettings();
+    const hasStoredDesktop =
+      stored?.desktopSource && [...desktopSource.options].some((option) => option.value === stored.desktopSource);
+
+    if (hasStoredDesktop) {
+      desktopSource.value = stored.desktopSource;
+    } else {
+      const firstScreen = sortedSources.find((source) => source.id.startsWith("screen:"));
+      if (firstScreen) {
+        desktopSource.value = firstScreen.id;
+        appendLog("info", `Desktop audio default: ${firstScreen.name}`);
+      } else if (sortedSources.length > 0) {
+        desktopSource.value = sortedSources[0].id;
+        appendLog("info", `Desktop source default: ${sortedSources[0].name}`);
+      }
     }
   } catch (error) {
-    setStatus(`Desktop sources unavailable: ${error.message}`, "error");
+    setSessionState("error", `Desktop sources unavailable: ${error.message}`);
     appendLog("error", `Desktop sources unavailable: ${error.message}`);
   }
 }
@@ -413,39 +664,6 @@ function stopLocalCapture() {
   }
 }
 
-function renderCaptions() {
-  const now = Date.now();
-  for (let index = captions.length - 1; index >= 0; index -= 1) {
-    if (captions[index].expiresAt <= now) {
-      captions.splice(index, 1);
-    }
-  }
-
-  captionList.innerHTML = "";
-  const visibleCaptions = captions.filter((caption) => getCaptionDisplayText(caption));
-  emptyState.classList.toggle("hidden", visibleCaptions.length > 0);
-
-  for (const caption of visibleCaptions.slice(-3)) {
-    const displayText = getCaptionDisplayText(caption);
-
-    const item = document.createElement("article");
-    item.className = "caption";
-
-    const text = document.createElement("p");
-    text.className = "text";
-    text.textContent = displayText;
-    item.append(text);
-
-    const meta = document.createElement("p");
-    meta.className = "meta";
-    const language = caption.language ? caption.language.toUpperCase() : "AUTO";
-    meta.textContent = caption.probability ? `${language} ${Math.round(caption.probability * 100)}%` : language;
-    item.append(meta);
-
-    captionList.append(item);
-  }
-}
-
 function getCaptionDisplayText(caption) {
   const language = caption.language ? caption.language.toLowerCase() : "";
   const isEnglish = !language || language === "en";
@@ -460,20 +678,141 @@ function getCaptionDisplayText(caption) {
   return caption.text || "";
 }
 
-function clearCaptionExpiryTimers() {
-  for (const timer of captionExpiryTimers.values()) {
-    window.clearTimeout(timer);
+function clearCaptionTimers(id) {
+  const expiryTimer = captionExpiryTimers.get(id);
+  if (expiryTimer) {
+    window.clearTimeout(expiryTimer);
+    captionExpiryTimers.delete(id);
   }
-  captionExpiryTimers.clear();
+
+  const exitTimer = captionExitTimers.get(id);
+  if (exitTimer) {
+    window.clearTimeout(exitTimer);
+    captionExitTimers.delete(id);
+  }
 }
 
-function removeCaption(id) {
-  const index = captions.findIndex((caption) => caption.id === id);
-  if (index !== -1) {
-    captions.splice(index, 1);
-    renderCaptions();
+function clearCaptionExpiryTimers() {
+  for (const id of [...captionExpiryTimers.keys(), ...captionExitTimers.keys()]) {
+    clearCaptionTimers(id);
   }
-  captionExpiryTimers.delete(id);
+}
+
+function removeCaptionFromData(id) {
+  const index = captions.findIndex((caption) => caption.id === id);
+  if (index !== -1) captions.splice(index, 1);
+  clearCaptionTimers(id);
+}
+
+function destroyCaptionElement(id) {
+  const record = captionDom.get(id);
+  if (record?.article?.isConnected) {
+    record.article.remove();
+  }
+  captionDom.delete(id);
+}
+
+function beginCaptionExit(id) {
+  const record = captionDom.get(id);
+  if (!record || record.exiting) return;
+
+  record.exiting = true;
+  record.article.classList.add("caption-exit");
+
+  const exitTimer = window.setTimeout(() => {
+    captionExitTimers.delete(id);
+    removeCaptionFromData(id);
+    destroyCaptionElement(id);
+    updateEmptyState();
+  }, CAPTION_EXIT_MS);
+
+  captionExitTimers.set(id, exitTimer);
+}
+
+function removeCaption(id, immediate = false) {
+  if (immediate) {
+    removeCaptionFromData(id);
+    destroyCaptionElement(id);
+    updateEmptyState();
+    return;
+  }
+
+  beginCaptionExit(id);
+}
+
+function scheduleCaptionRemoval(id) {
+  clearCaptionTimers(id);
+
+  const exitAt = Math.max(0, CAPTION_LIFETIME_MS - CAPTION_EXIT_MS);
+  const expiryTimer = window.setTimeout(() => beginCaptionExit(id), exitAt);
+  captionExpiryTimers.set(id, expiryTimer);
+}
+
+function upsertCaptionElement(caption, staggerIndex) {
+  const displayText = getCaptionDisplayText(caption);
+  if (!displayText) return;
+
+  let record = captionDom.get(caption.id);
+
+  if (!record) {
+    const article = document.createElement("article");
+    article.className = "caption";
+    article.dataset.captionId = String(caption.id);
+    article.style.setProperty("--stagger", staggerIndex);
+
+    const text = document.createElement("p");
+    text.className = "text";
+    text.textContent = displayText;
+
+    const meta = document.createElement("p");
+    meta.className = "meta";
+    meta.textContent = formatCaptionMeta(caption);
+
+    article.append(text, meta);
+    captionList.append(article);
+    record = { article, textEl: text, metaEl: meta, exiting: false };
+    captionDom.set(caption.id, record);
+  } else if (!record.exiting) {
+    if (record.textEl.textContent !== displayText) {
+      record.textEl.classList.add("is-updating");
+      window.setTimeout(() => {
+        record.textEl.textContent = displayText;
+        record.textEl.classList.remove("is-updating");
+      }, 90);
+    }
+    record.metaEl.textContent = formatCaptionMeta(caption);
+    record.article.style.setProperty("--stagger", staggerIndex);
+  }
+
+  updateEmptyState();
+}
+
+function pruneCaptionDom(visibleIds) {
+  for (const [id, record] of captionDom) {
+    if (!visibleIds.has(id) && !record.exiting) {
+      beginCaptionExit(id);
+    }
+  }
+}
+
+function renderCaptions() {
+  const now = Date.now();
+  for (let index = captions.length - 1; index >= 0; index -= 1) {
+    if (captions[index].expiresAt <= now && !captionDom.get(captions[index].id)?.exiting) {
+      beginCaptionExit(captions[index].id);
+    }
+  }
+
+  const visibleCaptions = captions.filter((caption) => getCaptionDisplayText(caption)).slice(-3);
+  const visibleIds = new Set(visibleCaptions.map((caption) => caption.id));
+
+  pruneCaptionDom(visibleIds);
+
+  visibleCaptions.forEach((caption, index) => {
+    upsertCaptionElement(caption, index);
+  });
+
+  updateEmptyState();
 }
 
 function addCaption(event) {
@@ -489,29 +828,36 @@ function addCaption(event) {
   captions.push(caption);
   while (captions.length > 30) {
     const removed = captions.shift();
-    if (removed) {
-      const timer = captionExpiryTimers.get(removed.id);
-      if (timer) window.clearTimeout(timer);
-      captionExpiryTimers.delete(removed.id);
-    }
+    if (removed) removeCaption(removed.id);
   }
 
-  const timer = window.setTimeout(() => removeCaption(caption.id), CAPTION_LIFETIME_MS);
-  captionExpiryTimers.set(caption.id, timer);
+  scheduleCaptionRemoval(caption.id);
   renderCaptions();
 }
 
 async function start() {
   if (running) return;
 
+  if (!validateTwitchUrl(true)) {
+    setSessionState("error", "Fix Twitch URL to start");
+    twitchUrl.focus();
+    return;
+  }
+
+  saveSettings();
   clearCaptionExpiryTimers();
   captions.length = 0;
+  for (const id of [...captionDom.keys()]) {
+    destroyCaptionElement(id);
+  }
   renderCaptions();
+
   appendLog("info", `Starting ${mode.value} mode with ${model.value}, ${chunkSeconds.value}s chunks`);
   running = true;
+  setConfigDisabled(true);
   startButton.disabled = true;
   stopButton.disabled = false;
-  setStatus("Starting worker...", "running");
+  setSessionState("running", "Starting...");
 
   await window.transcriber.start({
     mode: mode.value,
@@ -524,11 +870,11 @@ async function start() {
   });
 
   if (mode.value === "local") {
-    setStatus("Opening audio sources...", "running");
+    setSessionState("running", "Opening audio...");
     await startLocalCapture();
-    setStatus("Listening...", "running");
+    setSessionState("running", "Listening");
   } else {
-    setStatus("Opening Twitch stream...", "running");
+    setSessionState("running", "Opening Twitch stream");
   }
 }
 
@@ -539,7 +885,29 @@ async function stop() {
   await window.transcriber.stop();
   startButton.disabled = false;
   stopButton.disabled = true;
-  setStatus("Stopped");
+  setConfigDisabled(false);
+  setSessionState("idle");
+}
+
+function setLogsPanelVisible(visible) {
+  logPanel.classList.toggle("hidden", !visible);
+  logsButton.textContent = visible ? "Hide logs" : "Logs";
+  logsButton.setAttribute("aria-pressed", visible ? "true" : "false");
+  logsButton.setAttribute("aria-expanded", visible ? "true" : "false");
+  scheduleResizeToContent();
+}
+
+function requestClose() {
+  if (running) {
+    const confirmed = window.confirm("Transcription is running. Stop and close?");
+    if (!confirmed) return;
+    stop()
+      .catch((error) => appendLog("error", error.message))
+      .finally(() => window.transcriber.closeWindow());
+    return;
+  }
+
+  window.transcriber.closeWindow();
 }
 
 window.transcriber.onEvent((event) => {
@@ -561,24 +929,34 @@ window.transcriber.onEvent((event) => {
 
   if (event.type === "transcript") {
     addCaption(event);
-    setStatus("Caption received", "running");
+    flashActivity("New caption");
     return;
   }
 
   if (event.type === "error") {
     console.error(event);
-    setStatus(event.message || "Worker error", "error");
+    running = false;
+    stopLocalCapture();
+    setConfigDisabled(false);
+    startButton.disabled = false;
+    stopButton.disabled = true;
+    setSessionState("error", event.message || "Worker error");
+    updateEmptyState();
     return;
   }
 
   if (event.type === "log") {
     console.log(event.message || "");
-    setStatus(event.message || "Worker log", "error");
     return;
   }
 
   if (event.type === "status") {
-    setStatus(event.message || event.status || "Working", running ? "running" : "idle");
+    const message = event.message || event.status || "Working";
+    if (running) {
+      setSessionState("running", message);
+    } else {
+      setSessionState("idle");
+    }
   }
 });
 
@@ -588,24 +966,29 @@ window.transcriber.onUpdateEvent((event) => {
 
 mode.addEventListener("change", updateModeVisibility);
 captionDisplayMode.addEventListener("change", renderCaptions);
-startButton.addEventListener("click", () => start().catch(async (error) => {
-  running = false;
-  stopLocalCapture();
-  await window.transcriber.stop();
-  startButton.disabled = false;
-  stopButton.disabled = true;
-  setStatus(error.message, "error");
-}));
-stopButton.addEventListener("click", () => stop().catch((error) => setStatus(error.message, "error")));
+startButton.addEventListener("click", () =>
+  start().catch(async (error) => {
+    running = false;
+    stopLocalCapture();
+    await window.transcriber.stop();
+    startButton.disabled = false;
+    stopButton.disabled = true;
+    setConfigDisabled(false);
+    setSessionState("error", error.message);
+  })
+);
+stopButton.addEventListener("click", () => stop().catch((error) => setSessionState("error", error.message)));
 clearButton.addEventListener("click", () => {
   clearCaptionExpiryTimers();
   captions.length = 0;
-  renderCaptions();
+  for (const id of [...captionDom.keys()]) {
+    destroyCaptionElement(id);
+  }
+  updateEmptyState();
   appendLog("info", "Captions cleared");
 });
 logsButton.addEventListener("click", () => {
-  const visible = logPanel.classList.toggle("hidden");
-  logsButton.textContent = visible ? "Logs" : "Hide logs";
+  setLogsPanelVisible(logPanel.classList.contains("hidden"));
 });
 checkUpdateButton.addEventListener("click", async () => {
   if (["available", "downloading", "downloaded", "installing", "error"].includes(updateState.status)) {
@@ -664,11 +1047,49 @@ clearLogsButton.addEventListener("click", () => {
 toggleControls.addEventListener("click", () => {
   controls.classList.add("hidden");
   restoreControls.classList.remove("hidden");
+  shell.classList.add("caption-only");
+  scheduleResizeToContent();
+
+  try {
+    if (!localStorage.getItem(COLLAPSE_HINT_KEY)) {
+      collapseHint.classList.remove("hidden");
+      localStorage.setItem(COLLAPSE_HINT_KEY, "1");
+      window.setTimeout(() => collapseHint.classList.add("hidden"), 6000);
+    }
+  } catch {
+    // Ignore storage errors.
+  }
 });
 restoreControls.addEventListener("click", () => {
   controls.classList.remove("hidden");
   restoreControls.classList.add("hidden");
+  shell.classList.remove("caption-only");
+  collapseHint.classList.add("hidden");
+  scheduleResizeToContent();
 });
+closeButton.addEventListener("click", requestClose);
 
-await loadDevices().catch((error) => setStatus(error.message, "error"));
+bindSettingsPersistence();
+
+if (obsTip) {
+  obsTip.addEventListener("toggle", scheduleResizeToContent);
+}
+
+if (typeof ResizeObserver !== "undefined") {
+  const contentResizeObserver = new ResizeObserver(scheduleResizeToContent);
+  contentResizeObserver.observe(controls);
+  contentResizeObserver.observe(document.querySelector(".caption-stage"));
+}
+
+const storedSettings = loadSettings();
+applyStoredSettings(storedSettings);
 updateModeVisibility();
+setConfigDisabled(false);
+setSessionState("idle");
+updateEmptyState();
+
+await loadDevices().catch((error) => setSessionState("error", error.message));
+restoreDeviceSelections(storedSettings);
+settingsLoaded = true;
+saveSettings();
+scheduleResizeToContent();
