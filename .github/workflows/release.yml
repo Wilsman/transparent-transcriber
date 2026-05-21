@@ -42,9 +42,9 @@ jobs:
         with:
           name: Transparent Transcriber Windows
           path: |
-            dist/Transparent Transcriber-*-setup.exe
-            dist/Transparent Transcriber-*-setup.exe.blockmap
-            dist/Transparent Transcriber-*-portable.exe
+            dist/Transparent-Transcriber-*-setup.exe
+            dist/Transparent-Transcriber-*-setup.exe.blockmap
+            dist/Transparent-Transcriber-*-portable.exe
             dist/latest.yml
 
       - name: Publish GitHub release
@@ -52,8 +52,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/Transparent Transcriber-*-setup.exe
-            dist/Transparent Transcriber-*-setup.exe.blockmap
-            dist/Transparent Transcriber-*-portable.exe
+            dist/Transparent-Transcriber-*-setup.exe
+            dist/Transparent-Transcriber-*-setup.exe.blockmap
+            dist/Transparent-Transcriber-*-portable.exe
             dist/latest.yml
           generate_release_notes: true

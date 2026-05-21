@@ -84,9 +84,9 @@ The local build command only creates files in `dist`; it does not publish anythi
 
 Expected local output:
 
-- `dist/Transparent Transcriber-<version>-setup.exe`
-- `dist/Transparent Transcriber-<version>-setup.exe.blockmap`
-- `dist/Transparent Transcriber-<version>-portable.exe`
+- `dist/Transparent-Transcriber-<version>-setup.exe`
+- `dist/Transparent-Transcriber-<version>-setup.exe.blockmap`
+- `dist/Transparent-Transcriber-<version>-portable.exe`
 - `dist/latest.yml`
 
 ## GitHub Releases
@@ -132,7 +132,7 @@ git push origin master
 git push origin v0.1.1
 ```
 
-The workflow builds `Transparent Transcriber-<version>-setup.exe`, `Transparent Transcriber-<version>-portable.exe`, and updater metadata on `windows-latest`, then attaches them to the GitHub release.
+The workflow builds `Transparent-Transcriber-<version>-setup.exe`, `Transparent-Transcriber-<version>-portable.exe`, and updater metadata on `windows-latest`, then attaches them to the GitHub release.
 
 After the tagged release finishes, installed copies of the app can find it through the startup update check or the Updates button.
 

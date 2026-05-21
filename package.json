@@ -69,10 +69,10 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "${productName}-${version}-setup.${ext}"
+      "artifactName": "Transparent-Transcriber-${version}-setup.${ext}"
     },
     "portable": {
-      "artifactName": "${productName}-${version}-portable.${ext}"
+      "artifactName": "Transparent-Transcriber-${version}-portable.${ext}"
     }
   }
 }
