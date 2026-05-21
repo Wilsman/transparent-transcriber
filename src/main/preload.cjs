@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("transcriber", {
   sendAudioChunk: (payload) => ipcRenderer.invoke("transcriber:audio-chunk", payload),
   listDesktopSources: () => ipcRenderer.invoke("desktop-sources:list"),
   selectDesktopSource: (sourceId) => ipcRenderer.invoke("desktop-sources:select", sourceId),
+  getVersion: () => ipcRenderer.invoke("app:get-version"),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),
   installUpdateAndRelaunch: () => ipcRenderer.invoke("updates:install-and-relaunch"),

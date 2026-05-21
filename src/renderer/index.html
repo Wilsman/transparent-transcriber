@@ -22,9 +22,18 @@
             </details>
           </div>
           <div class="window-actions">
-            <button class="update-chip" id="checkUpdateButton" title="Check for updates" aria-label="Check for updates">
-              <span class="update-chip-dot"></span>
-              <span id="updateChipText">Updates</span>
+            <button
+              class="update-chip"
+              id="checkUpdateButton"
+              type="button"
+              title="Check for updates"
+              aria-label="Check for updates"
+            >
+              <span class="update-chip-dot" aria-hidden="true"></span>
+              <span class="update-chip-body">
+                <span class="update-chip-version" id="updateChipVersion">v…</span>
+                <span class="update-chip-status" id="updateChipStatus">Check updates</span>
+              </span>
             </button>
             <button class="icon-button" id="toggleControls" title="Hide controls (caption-only overlay)" aria-label="Hide controls">
               −
@@ -122,6 +131,11 @@
 
         <section class="update-panel hidden" id="updatePanel" aria-label="App update" aria-live="polite">
           <div>
+            <div class="update-version-row" id="updateVersionRow" aria-hidden="true">
+              <span class="update-version-pill update-version-current" id="updateVersionCurrent">v0.0.0</span>
+              <span class="update-version-arrow hidden" id="updateVersionArrow" aria-hidden="true">→</span>
+              <span class="update-version-pill update-version-next hidden" id="updateVersionNext">v0.0.0</span>
+            </div>
             <p class="update-title" id="updateTitle">Update available</p>
             <p class="update-message" id="updateMessage"></p>
             <div class="update-progress hidden" id="updateProgress">

@@ -490,6 +490,8 @@ ipcMain.handle("updates:open-release", async () => {
   return updateState;
 });
 
+ipcMain.handle("app:get-version", () => app.getVersion());
+
 ipcMain.handle("app:close", () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();

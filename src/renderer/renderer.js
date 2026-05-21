@@ -43,7 +43,12 @@ const updateProgress = document.querySelector("#updateProgress");
 const updateProgressBar = document.querySelector("#updateProgressBar");
 const updatePrimaryButton = document.querySelector("#updatePrimaryButton");
 const updateLaterButton = document.querySelector("#updateLaterButton");
-const updateChipText = document.querySelector("#updateChipText");
+const updateChipVersion = document.querySelector("#updateChipVersion");
+const updateChipStatus = document.querySelector("#updateChipStatus");
+const updateVersionRow = document.querySelector("#updateVersionRow");
+const updateVersionCurrent = document.querySelector("#updateVersionCurrent");
+const updateVersionArrow = document.querySelector("#updateVersionArrow");
+const updateVersionNext = document.querySelector("#updateVersionNext");
 
 let micStream;
 let desktopStream;
@@ -326,27 +331,137 @@ function updateNoticeShouldShow(state, forceShow = false) {
   return forceShow && ["checking", "no-update", "error", "dev"].includes(state.status);
 }
 
+function formatVersionLabel(version) {
+  if (!version) return "";
+  const normalized = String(version).replace(/^v/i, "");
+  return normalized ? `v${normalized}` : "";
+}
+
+function updateVersionCompareRow(state) {
+  const current = formatVersionLabel(state.currentVersion);
+  const next = formatVersionLabel(state.version);
+  const showCompare = Boolean(
+    current && next && ["available", "downloading", "downloaded", "installing"].includes(state.status)
+  );
+
+  updateVersionRow.classList.toggle("hidden", !showCompare);
+  updateVersionRow.setAttribute("aria-hidden", showCompare ? "false" : "true");
+  updateVersionCurrent.textContent = current || "v?";
+  updateVersionNext.textContent = next || "";
+  updateVersionNext.classList.toggle("hidden", !showCompare);
+  updateVersionArrow.classList.toggle("hidden", !showCompare);
+}
+
 function updateChipForState(state) {
   const status = state.status || "idle";
+  const currentLabel = formatVersionLabel(state.currentVersion) || "v?";
+  const nextLabel = formatVersionLabel(state.version);
+
   checkUpdateButton.dataset.status = status;
   checkUpdateButton.classList.toggle("attention", ["available", "downloaded", "error"].includes(status));
+  updateChipVersion.textContent = currentLabel;
 
+  let statusLabel = "Check updates";
   if (status === "checking") {
-    updateChipText.textContent = "Checking";
+    statusLabel = "Checking…";
   } else if (status === "available") {
-    updateChipText.textContent = state.version ? `v${state.version}` : "Update";
+    statusLabel = nextLabel ? `${nextLabel} available` : "Update available";
   } else if (status === "downloading") {
-    updateChipText.textContent = `${Number.isFinite(state.progress) ? Math.round(state.progress) : 0}%`;
+    const pct = Number.isFinite(state.progress) ? Math.round(state.progress) : 0;
+    statusLabel = nextLabel ? `Downloading ${nextLabel} · ${pct}%` : `Downloading · ${pct}%`;
   } else if (status === "downloaded") {
-    updateChipText.textContent = "Restart";
+    statusLabel = nextLabel ? `${nextLabel} ready` : "Ready to restart";
   } else if (status === "installing") {
-    updateChipText.textContent = "Restarting";
+    statusLabel = "Installing…";
   } else if (status === "no-update") {
-    updateChipText.textContent = "Up to date";
+    statusLabel = "Up to date";
   } else if (status === "error") {
-    updateChipText.textContent = "Update error";
-  } else {
-    updateChipText.textContent = "Updates";
+    statusLabel = "Update failed";
+  } else if (status === "dev") {
+    statusLabel = "Dev build";
+  } else if (status === "opened-release") {
+    statusLabel = "Release opened";
+  }
+
+  updateChipStatus.textContent = statusLabel;
+  checkUpdateButton.title = `${currentLabel} — ${statusLabel}. Click for details.`;
+  checkUpdateButton.setAttribute(
+    "aria-label",
+    `App version ${currentLabel}. ${statusLabel}. Open update details.`
+  );
+  updateVersionCompareRow(state);
+}
+
+function updatePanelCopyForState(state) {
+  const current = formatVersionLabel(state.currentVersion);
+  const next = formatVersionLabel(state.version);
+
+  if (state.status === "checking") {
+    updateTitle.textContent = "Checking for updates";
+    updateMessage.textContent = current
+      ? `Looking for releases newer than ${current}…`
+      : state.message || "Checking GitHub releases...";
+    return;
+  }
+
+  if (state.status === "available") {
+    updateTitle.textContent = next ? `Update available — ${next}` : "Update available";
+    updateMessage.textContent = current && next
+      ? `You're on ${current}. ${next} is ready to download.`
+      : state.isPortable
+        ? "Portable builds open the latest GitHub release so you can download the new exe."
+        : "Download the update, then relaunch when it is ready.";
+    return;
+  }
+
+  if (state.status === "downloading") {
+    const pct = Number.isFinite(state.progress) ? Math.round(state.progress) : 0;
+    updateTitle.textContent = next ? `Downloading ${next}` : "Downloading update";
+    updateMessage.textContent = current && next
+      ? `Updating from ${current} to ${next} — ${pct}%`
+      : state.message || `Downloading update — ${pct}%`;
+    return;
+  }
+
+  if (state.status === "downloaded") {
+    updateTitle.textContent = next ? `${next} ready to install` : "Restart to finish updating";
+    updateMessage.textContent = current && next
+      ? `${next} is downloaded. Restart to move on from ${current}.`
+      : "The update is downloaded. Relaunch now to switch to the new version.";
+    return;
+  }
+
+  if (state.status === "installing") {
+    updateTitle.textContent = next ? `Installing ${next}` : "Installing update";
+    updateMessage.textContent = state.message || "Installing update and relaunching...";
+    return;
+  }
+
+  if (state.status === "no-update") {
+    updateTitle.textContent = "Up to date";
+    updateMessage.textContent = current
+      ? `${current} is the latest release.`
+      : state.message || "You're running the latest version.";
+    return;
+  }
+
+  if (state.status === "opened-release") {
+    updateTitle.textContent = "Release opened";
+    updateMessage.textContent = state.message || "Opened the latest GitHub release.";
+    return;
+  }
+
+  if (state.status === "dev") {
+    updateTitle.textContent = "Dev build";
+    updateMessage.textContent = current
+      ? `${current} — updates are only available in packaged builds.`
+      : state.message || "Updates are only available in packaged builds.";
+    return;
+  }
+
+  if (state.status === "error") {
+    updateTitle.textContent = "Update check failed";
+    updateMessage.textContent = state.message || "Could not check for updates.";
   }
 }
 
@@ -382,48 +497,37 @@ function handleUpdateState(nextState, forceShow = false) {
   updatePrimaryButton.classList.toggle("hidden", false);
   updateLaterButton.textContent = "Later";
 
-  if (updateState.status === "checking") {
-    updateTitle.textContent = "Checking for updates";
-    updateMessage.textContent = updateState.message || "Checking GitHub releases...";
-    updatePrimaryButton.classList.add("hidden");
-  } else if (updateState.status === "available") {
-    const version = updateState.version ? ` v${updateState.version}` : "";
-    updateTitle.textContent = `Update ready to download${version}`;
-    updateMessage.textContent = updateState.isPortable
-      ? "Portable builds open the latest GitHub release so you can download the new exe."
-      : "Download the update, then relaunch when it is ready.";
-    updatePrimaryButton.textContent = updateState.isPortable ? "Download latest" : "Download";
-  } else if (updateState.status === "downloading") {
-    updateTitle.textContent = "Downloading update";
-    updateMessage.textContent = updateState.message || "Downloading update...";
-    updatePrimaryButton.textContent = "Downloading";
-    updatePrimaryButton.disabled = true;
-  } else if (updateState.status === "downloaded") {
-    updateTitle.textContent = "Restart to finish updating";
-    updateMessage.textContent = "The update is downloaded. Relaunch now to switch to the new version.";
-    updatePrimaryButton.textContent = "Restart now";
-  } else if (updateState.status === "installing") {
-    updateTitle.textContent = "Installing update";
-    updateMessage.textContent = updateState.message || "Installing update and relaunching...";
-    updatePrimaryButton.textContent = "Installing";
-    updatePrimaryButton.disabled = true;
-    updateLaterButton.textContent = "Close";
-  } else if (updateState.status === "no-update") {
-    updateTitle.textContent = "Up to date";
-    updateMessage.textContent = updateState.message || "You're running the latest version.";
-    updatePrimaryButton.classList.add("hidden");
-  } else if (updateState.status === "opened-release") {
-    updateTitle.textContent = "Release opened";
-    updateMessage.textContent = updateState.message || "Opened the latest GitHub release.";
-    updatePrimaryButton.classList.add("hidden");
-  } else if (updateState.status === "dev") {
-    updateTitle.textContent = "Dev build";
-    updateMessage.textContent = updateState.message || "Updates are only available in packaged builds.";
-    updatePrimaryButton.classList.add("hidden");
-  } else if (updateState.status === "error") {
-    updateTitle.textContent = "Update check failed";
-    updateMessage.textContent = updateState.message || "Could not check for updates.";
-    updatePrimaryButton.textContent = "Open releases";
+  if (
+    updateState.status === "checking" ||
+    updateState.status === "available" ||
+    updateState.status === "downloading" ||
+    updateState.status === "downloaded" ||
+    updateState.status === "installing" ||
+    updateState.status === "no-update" ||
+    updateState.status === "opened-release" ||
+    updateState.status === "dev" ||
+    updateState.status === "error"
+  ) {
+    updatePanelCopyForState(updateState);
+
+    if (updateState.status === "checking") {
+      updatePrimaryButton.classList.add("hidden");
+    } else if (updateState.status === "available") {
+      updatePrimaryButton.textContent = updateState.isPortable ? "Download latest" : "Download";
+    } else if (updateState.status === "downloading") {
+      updatePrimaryButton.textContent = "Downloading";
+      updatePrimaryButton.disabled = true;
+    } else if (updateState.status === "downloaded") {
+      updatePrimaryButton.textContent = "Restart now";
+    } else if (updateState.status === "installing") {
+      updatePrimaryButton.textContent = "Installing";
+      updatePrimaryButton.disabled = true;
+      updateLaterButton.textContent = "Close";
+    } else if (updateState.status === "no-update" || updateState.status === "opened-release" || updateState.status === "dev") {
+      updatePrimaryButton.classList.add("hidden");
+    } else if (updateState.status === "error") {
+      updatePrimaryButton.textContent = "Open releases";
+    }
   } else {
     updatePanel.classList.add("hidden");
   }
@@ -1093,3 +1197,10 @@ restoreDeviceSelections(storedSettings);
 settingsLoaded = true;
 saveSettings();
 scheduleResizeToContent();
+
+try {
+  const appVersion = await window.transcriber.getVersion();
+  handleUpdateState({ status: "idle", currentVersion: appVersion });
+} catch {
+  handleUpdateState({ status: "idle" });
+}
